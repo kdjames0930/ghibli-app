@@ -1,0 +1,58 @@
+<!-- templates/history.html -->
+{% extends "base.html" %}
+
+{% block title %}History - Ghibli Style Photo Transformer{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Usage History</h1>
+    
+    <h2>Image Transformations</h2>
+    {% if transformations %}
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for transformation in transformations %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ transformation.created_at }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="center">No transformations yet.</p>
+    {% endif %}
+    
+    <h2>Payment History</h2>
+    {% if payments %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for payment in payments %}
+            <tr>
+                <td>{{ payment.created_at }}</td>
+                <td>${{ payment.amount }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="center">No payments yet.</p>
+    {% endif %}
+    
+    <div class="center">
+        <a href="{{ url_for('dashboard') }}" class="button">Back to Dashboard</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,13 @@
+<!-- templates/index.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1>Ghibli Style Photo Transformer</h1>
+    <p class="center">Transform your photos into Studio Ghibli animation style with AI.</p>
+    <div class="center">
+        <a href="{{ url_for('login') }}" class="button">Login</a>
+        <a href="{{ url_for('signup') }}" class="button">Sign Up</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,293 @@
+<!-- templates/dashboard.html -->
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Ghibli Style Photo Transformer{% endblock %}
+
+{% block head %}
+<script src="https://js.stripe.com/v3/"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Welcome, {{ email }}</h1>
+    
+    <div class="infobox">
+        <p><strong>Images created:</strong> {{ image_count }}</p>
+        <p><strong>Free images left:</strong> {{ free_images_left }}</p>
+    </div>
+    
+    {% if need_payment %}
+    <div id="payment-container">
+        <div class="payment-form">
+            <h2>Payment Required</h2>
+            <p>You've used 5 free transformations. Please pay $1.00 to continue using the app.</p>
+            
+            <div id="payment-element"></div>
+            <button id="payment-button" class="button">Pay $1.00</button>
+            <div id="payment-message" class="error" style="display: none;"></div>
+        </div>
+    </div>
+    
+    <div id="app-container" style="display: none;">
+    {% else %}
+    <div id="app-container">
+    {% endif %}
+        <div class="upload-area" id="dropArea">
+            <p>Click to select or drag and drop your image here</p>
+            <input type="file" id="fileInput" accept="image/*" style="display: none;">
+        </div>
+        
+        <div class="center">
+            <button id="transformBtn" disabled>Transform to Ghibli Style</button>
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Transforming your image... This may take up to 30 seconds.</p>
+        </div>
+        
+        <div class="error" id="errorMsg"></div>
+        
+        <div class="images-container">
+            <div class="image-box" id="originalImageBox" style="display: none;">
+                <div class="image-title">Original Image</div>
+                <img id="originalImage" src="" alt="Original image">
+            </div>
+            
+            <div class="image-box" id="transformedImageBox" style="display: none;">
+                <div class="image-title">Ghibli Style Image</div>
+                <img id="transformedImage" src="" alt="Transformed image">
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // DOM elements
+    const dropArea = document.getElementById('dropArea');
+    const fileInput = document.getElementById('fileInput');
+    const transformBtn = document.getElementById('transformBtn');
+    const originalImageBox = document.getElementById('originalImageBox');
+    const originalImage = document.getElementById('originalImage');
+    const transformedImageBox = document.getElementById('transformedImageBox');
+    const transformedImage = document.getElementById('transformedImage');
+    const loading = document.getElementById('loading');
+    const errorMsg = document.getElementById('errorMsg');
+    const paymentContainer = document.getElementById('payment-container');
+    const appContainer = document.getElementById('app-container');
+
+    // Event listeners for drag and drop
+    dropArea.addEventListener('click', () => fileInput.click());
+    
+    dropArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropArea.style.borderColor = '#1a73e8';
+    });
+    
+    dropArea.addEventListener('dragleave', () => {
+        dropArea.style.borderColor = '#ccc';
+    });
+    
+    dropArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropArea.style.borderColor = '#ccc';
+        
+        if (e.dataTransfer.files.length) {
+            handleFile(e.dataTransfer.files[0]);
+        }
+    });
+    
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) {
+            handleFile(fileInput.files[0]);
+        }
+    });
+    
+    transformBtn.addEventListener('click', transformImage);
+    
+    // Handle the selected file
+    function handleFile(file) {
+        if (!file.type.match('image.*')) {
+            showError('Please select an image file');
+            return;
+        }
+        
+        const reader = new FileReader();
+        
+        reader.onload = (e) => {
+            originalImage.src = e.target.result;
+            originalImageBox.style.display = 'block';
+            transformedImageBox.style.display = 'none';
+            transformBtn.disabled = false;
+            hideError();
+        };
+        
+        reader.readAsDataURL(file);
+    }
+    
+    // Transform the image using the API
+    function transformImage() {
+        const file = fileInput.files[0];
+        if (!file) return;
+        
+        const formData = new FormData();
+        formData.append('image', file);
+        
+        // Show loading indicator
+        loading.style.display = 'block';
+        transformBtn.disabled = true;
+        hideError();
+        
+        fetch('/transform', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            loading.style.display = 'none';
+            
+            if (data.error) {
+                if (data.need_payment) {
+                    // Show payment UI if needed
+                    paymentContainer.style.display = 'block';
+                    appContainer.style.display = 'none';
+                    return;
+                }
+                
+                showError(data.error);
+                transformBtn.disabled = false;
+                return;
+            }
+            
+            transformedImage.src = data.transformed_image;
+            transformedImageBox.style.display = 'block';
+            transformBtn.disabled = false;
+        })
+        .catch(error => {
+            loading.style.display = 'none';
+            showError('An error occurred. Please try again.');
+            transformBtn.disabled = false;
+            console.error('Error:', error);
+        });
+    }
+    
+    function showError(message) {
+        errorMsg.textContent = message;
+        errorMsg.style.display = 'block';
+    }
+    
+    function hideError() {
+        errorMsg.style.display = 'none';
+    }
+</script>
+
+{% if need_payment %}
+<script>
+    // Stripe payment handling
+    const stripe = Stripe('{{ stripe_key }}');
+    const paymentButton = document.getElementById('payment-button');
+    const paymentMessage = document.getElementById('payment-message');
+    let elements;
+    let paymentElement;
+    let clientSecret;
+
+    // Create payment intent on server
+    async function initializePayment() {
+        try {
+            const response = await fetch('/create-payment-intent', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                showPaymentError(data.error);
+                return;
+            }
+            
+            clientSecret = data.clientSecret;
+            
+            // Create and mount the Payment Element
+            elements = stripe.elements({
+                clientSecret: clientSecret
+            });
+            
+            paymentElement = elements.create('payment');
+            paymentElement.mount('#payment-element');
+            
+            paymentButton.addEventListener('click', handlePayment);
+        } catch (error) {
+            showPaymentError('Failed to initialize payment. Please try again.');
+            console.error('Payment initialization error:', error);
+        }
+    }
+
+    async function handlePayment() {
+        paymentButton.disabled = true;
+        
+        try {
+            const result = await stripe.confirmPayment({
+                elements,
+                redirect: 'if_required'
+            });
+            
+            if (result.error) {
+                showPaymentError(result.error.message);
+                paymentButton.disabled = false;
+            } else {
+                // Payment succeeded
+                await registerPaymentSuccess(result.paymentIntent.id);
+            }
+        } catch (error) {
+            showPaymentError('Payment failed. Please try again.');
+            paymentButton.disabled = false;
+            console.error('Payment confirmation error:', error);
+        }
+    }
+
+    async function registerPaymentSuccess(paymentIntentId) {
+        try {
+            const response = await fetch('/payment-success', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    paymentIntentId: paymentIntentId
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                showPaymentError(data.error);
+                paymentButton.disabled = false;
+                return;
+            }
+            
+            // Payment was successful and registered
+            paymentContainer.style.display = 'none';
+            appContainer.style.display = 'block';
+            
+            // Reload page to update user status
+            window.location.reload();
+        } catch (error) {
+            showPaymentError('Error registering payment. Please contact support.');
+            paymentButton.disabled = false;
+            console.error('Payment registration error:', error);
+        }
+    }
+
+    function showPaymentError(message) {
+        paymentMessage.textContent = message;
+        paymentMessage.style.display = 'block';
+    }
+
+    // Initialize payment when page loads
+    initializePayment();
+</script>
+{% endif %}
+{% endblock %}
